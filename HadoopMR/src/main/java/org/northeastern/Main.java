@@ -20,31 +20,11 @@ import org.checkerframework.checker.units.qual.C;
 import java.time.LocalDate;
 
 
-
-
-//        Our goal is to compute the average delay for all two-•‐ leg flights from airport ORD (Chicago) to JFK
-//        (New York) where both legs have a flight date that falls into the 12-•‐ month period between June 2007
-//        and May 2008 (including these two months). More precisely:
-//        • A two-•‐ leg flight from ORD to JFK consists of two flights F1 and F2 with the following
-//        properties:
-//        o F1 has origin ORD and some destination X that is different from JFK.
-//        o F2 originates from that airport X where F1 ended; its destination is JFK.
-//        o F1 and F2 have the same flight date. (Use the FlightDate attribute.)
-//        o The departure time of F2 is later than the arrival time of F1. (Use the actual arrival
-//        time
-//        ArrTime and the actual departure time DepTime.)
-//        o Neither of the two flights was cancelled or diverted. (Find the attributes
-//        containing this information.)
-//        • The delay of the entire two- •‐ leg flight should be computed as the delay of F1 plus the
-//        delay of F2. Use attribute ArrDelayMinutes, which sets the delay for early arrivals to zero.
-//        • Compute a simple average of the delays of all flight pairs (F1, F2) that match the
-//        conditions and report it.
 public class Main {
 
 
     public static class CarrierKey implements WritableComparable<CarrierKey> {
         private String carrier;
-        private int month;
 
         public CarrierKey(String carrier) {
             this.carrier = carrier;
@@ -58,6 +38,19 @@ public class Main {
                 return 0;
             }
             return this.carrier.compareTo(o.carrier);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            CarrierKey that = (CarrierKey) o;
+            return Objects.equals(carrier, that.carrier);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(carrier);
         }
 
         @Override
@@ -78,13 +71,6 @@ public class Main {
             this.carrier = carrier;
         }
 
-        public int getMonth() {
-            return month;
-        }
-
-        public void setMonth(int month) {
-            this.month = month;
-        }
     }
 
     public static class TokenizerMapper extends Mapper<LongWritable, Text, CarrierKey, Text>{
