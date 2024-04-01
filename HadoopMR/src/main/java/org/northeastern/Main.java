@@ -1,12 +1,9 @@
 package org.northeastern;
 
 import java.io.*;
-import java.rmi.UnexpectedException;
 import java.util.*;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.*;
 import org.apache.hadoop.mapreduce.Job;
@@ -15,9 +12,7 @@ import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import com.opencsv.CSVParser;
-import org.checkerframework.checker.units.qual.C;
 
-import java.time.LocalDate;
 
 
 public class Main {
@@ -94,6 +89,7 @@ public class Main {
 
             String line = text.toString();
             String[] records = csvParser.parseLine(line);
+            System.out.println(records.length);
 
 
 
