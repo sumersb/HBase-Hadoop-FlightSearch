@@ -5,6 +5,16 @@ import java.util.*;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.Connection;
+import org.apache.hadoop.hbase.client.ConnectionFactory;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.ImmutableByteArray;
 import org.apache.hadoop.io.*;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
@@ -12,11 +22,12 @@ import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import com.opencsv.CSVParser;
-
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
+import org.apache.kerby.config.Conf;
 
 
 public class Main {
-
 
     public static class CarrierKey implements WritableComparable<CarrierKey> {
         private String carrier;
@@ -70,45 +81,36 @@ public class Main {
 
     public static class TokenizerMapper extends Mapper<LongWritable, Text, CarrierKey, Text>{
 
-        // Keep Track of indexes of all relevant variables
-        private static final Integer YEAR_INDEX = 0;
-        private static final Integer MONTH_INDEX = 2;
-        private static final Integer CARRIER_INDEX = 6;
-        private static final Integer ARR_DELAY_MINUTES_INDEX = 37;
-        private static final Integer CANCELLED_INDEX = 41;
-        private static final Integer DIVERTED_INDEX = 43;
+        private static final int TARGET_YEAR = 2008;
+        private static final int YEAR_INDEX = 0;
+        private static final int MONTH_INDEX = 2;
+        private static final int CARRIER_INDEX = 6;
+        private static final int ARR_DELAY_MINUTES_INDEX = 37;
+        private static final int CANCELLED_INDEX = 41;
+        private static final int DIVERTED_INDEX = 43;
 
 
-        private CSVParser csvParser = new CSVParser();
-        private static final int YEAR = 2007;
-
-
+        private final CSVParser csvParser = new CSVParser();
 
         public void map(LongWritable key, Text text, Context context
         ) throws IOException, InterruptedException {
 
             String line = text.toString();
             String[] records = csvParser.parseLine(line);
-            System.out.println(records.length);
-
-
 
             if (isValidDate(records) && isFlightSuccessful(records)) {
-
-                CarrierKey outputKey = getOutputKey(records);
-//                System.out.println(outputKey.getCarrier());
-                String outputValue = getOutputValue(records);
-                context.write(outputKey,new Text(outputValue));
+                context.write(getOutputKey(records), getOutputValue(records) );
             }
         }
+
+
         /**
          *
          * @param records - the csv in an array of Strings
          * @return boolean - Whether the date is inside the valid range June 2007 <= FlightDate <= May 2008
          */
         private static boolean isValidDate(String[] records) {
-            Integer departDate = Integer.parseInt(records[YEAR_INDEX]);
-            return departDate.equals(YEAR);
+            return Integer.parseInt(records[YEAR_INDEX]) == TARGET_YEAR;
         }
 
         /**
@@ -129,8 +131,8 @@ public class Main {
             return new CarrierKey(records[CARRIER_INDEX]);
         }
 
-        private static String getOutputValue(String[] records) {
-            return records[MONTH_INDEX]+","+records[ARR_DELAY_MINUTES_INDEX];
+        private static Text getOutputValue(String[] records) {
+            return new Text(records[MONTH_INDEX] + "," + records[ARR_DELAY_MINUTES_INDEX]);
         }
     }
 
@@ -142,53 +144,48 @@ public class Main {
         int flightCount = 0; // Used to keep track of total flight combinations
         float flightDelayTotal = 0; // Used to keep track of total delay
 
-        /**
-         *
-         * @param key - Text of flightDate+MiddleLocation
-         * @param values - Itreable Texts of flight records
-         * @param context - Writes output as key of total delay, value as total flight count
-         * @throws IOException
-         * @throws InterruptedException
-         */
+
         protected void reduce(CarrierKey key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
-            System.out.println(key.getCarrier());
-            // Create array to seperate 2 flight legs
-            Float[] arrDelay = new Float[12];
-            Integer[] flightCount = new Integer[12];
-            Float[] avgDelay = new Float[12];
-            Arrays.fill(arrDelay,0.0f);
-            Arrays.fill(flightCount,0);
-
+            Float[] arrDelayMonths = new Float[12];
+            Arrays.fill(arrDelayMonths,0f);
+            Integer[] monthCounter = new Integer[12];
+            Arrays.fill(monthCounter,0);
             for (Text v : values) {
-                String[] monthDelay = csvParser.parseLine((v.toString()));
-                int month = Integer.parseInt(monthDelay[0]);
-                float arrDelayMinutes = Float.parseFloat(monthDelay[1]);
-                arrDelay[month-1] += arrDelayMinutes;
-                flightCount[month-1] += 1;
+                String[] monthDelay = csvParser.parseLine(v.toString());
+                Integer month = Integer.parseInt(monthDelay[0]);
+                Float arrDelay = Float.parseFloat(monthDelay[1]);
+                arrDelayMonths[month-1] += arrDelay;
+                monthCounter[month-1] ++;
+            }
+            Integer[] averageMonthlyDelay = new Integer[12];
+            for (int i = 0; i < 12; i ++) {
+                averageMonthlyDelay[i] = Math.round((arrDelayMonths[i]/monthCounter[i]) + 0.5f);
             }
 
-            for (int i = 0; i<12; i++) {
-                avgDelay[i] = flightCount[i] > 0 ? arrDelay[i]/flightCount[i] : 0;
-            }
-            System.out.println(key.getCarrier());
-            String outputKey = "AIR-"+key.getCarrier();
-            String outputValue = getOutputValue(avgDelay);
-            context.write(new Text(outputKey), new Text(outputValue));
+            context.write(getOutputKey(key), getOutputValue(averageMonthlyDelay));
         }
 
-        public String getOutputValue(Float[] arrDelay) {
+        public static Text getOutputKey(CarrierKey key) {
+            return new Text("AIR-" + key.getCarrier());
+        }
+
+        public static Text getOutputValue(Integer[] delay) {
             StringBuilder stringBuilder = new StringBuilder();
-            for (int i = 0; i < 12; i++) {
-                stringBuilder.append("(").append(i+1).append(", ").append(arrDelay[i]).append("), ");
+            for (int i = 0 ; i < 12; i++) {
+                stringBuilder.append(", (").append(i+1).append(",").append(delay[i]).append(")");
             }
-            return stringBuilder.toString();
+            return new Text(stringBuilder.toString());
         }
+
+
 
     }
 
+
+
     public static void main(String[] args) throws Exception {
-        Path inputPath = new Path("/Users/sumer/Downloads/data.csv"); // Take input path for data
-        Path outputPath = new Path("/Users/sumer/Downloads/applesauce"); // Take output path for data
+        Path inputPath = new Path(args[0]); // Take input path for data
+        Path outputPath = new Path(args[1]); // Take output path for data
 
         // Set up job
         Configuration conf = new Configuration();
@@ -202,6 +199,5 @@ public class Main {
         FileInputFormat.addInputPath(job, inputPath);
         FileOutputFormat.setOutputPath(job, outputPath);
         boolean jobCompleted = job.waitForCompletion(true);
-
     }
 }
