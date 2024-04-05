@@ -94,7 +94,7 @@ public class Main {
         ) throws IOException, InterruptedException {
             String line = text.toString();
             String[] records = csvParser.parseLine(line);
-            String rowKey = records[YEAR_INDEX] + records[CARRIER_INDEX];
+            String rowKey = UUID.randomUUID().toString();
             Put put = new Put(rowKey.getBytes());
             put.addColumn("info".getBytes(), "data".getBytes(), line.getBytes());
             table.put(put);
