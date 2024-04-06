@@ -9,6 +9,7 @@ import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.mapred.TableMap;
+import org.apache.hadoop.hbase.mapreduce.TableInputFormat;
 import org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil;
 import org.apache.hadoop.hbase.mapreduce.TableMapper;
 import org.apache.hadoop.hbase.mapreduce.TableOutputFormat;
@@ -21,6 +22,7 @@ import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import com.opencsv.CSVParser;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
 import org.apache.kerby.config.Conf;
 
@@ -36,30 +38,39 @@ public class Main {
         Configuration conf = HBaseConfiguration.create();
         String hbaseSite = "/etc/hbase/conf/hbase-site.xml";
         conf.addResource(new File(hbaseSite).toURI().toURL());
-        runMapRed(inputPath, outputPath, conf);
+        runMapRed(outputPath, conf);
     }
 
 
-    public static void runMapRed(Path inputPath, Path outputPath, Configuration conf) throws IOException, InterruptedException, ClassNotFoundException {
-        Job job = Job.getInstance(conf, "FlightCSVToHBase");
+    public static void runMapRed(Path outputPath, Configuration conf) throws IOException, InterruptedException, ClassNotFoundException {
+        Job job = Job.getInstance(conf, "HCompute");
         job.setJarByClass(Main.class);
 
-        Scan scan = new Scan();
-        scan.addFamily("info".getBytes());
+        // Input from HBase table
+        job.setInputFormatClass(TableInputFormat.class);
+        job.getConfiguration().set(TableInputFormat.INPUT_TABLE, "FlightRecords");
 
+        // Mapper and Reducer classes
+        job.setMapperClass(TokenizerMapper.class);
+        job.setReducerClass(FlightReducer.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(Text.class);
 
-        TableMapReduceUtil.initTableMapperJob("FlightTable",scan, TokenizerMapper.class, null, null, job);
-        job.setMapperClass(Main.TokenizerMapper.class);
-        job.setReducerClass(Main.FlightReducer.class);
-        job.setNumReduceTasks(10);
+        // Output key and value classes
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(Text.class);
-        FileInputFormat.addInputPath(job, inputPath);
+
+        // Set output format
+        job.setOutputFormatClass(TextOutputFormat.class);
+
+        // Output path (modify as per your requirement)
         FileOutputFormat.setOutputPath(job, outputPath);
-        boolean jobCompleted = job.waitForCompletion(true);
+
+        // Wait for job completion
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
     }
 
-    public static class TokenizerMapper extends TableMapper<Text, Text> {
+    public static class TokenizerMapper extends Mapper<ImmutableBytesWritable, Result, Text, Text> {
 
         private static final int TARGET_YEAR = 2008;
         private static final int YEAR_INDEX = 0;
@@ -73,14 +84,14 @@ public class Main {
 
         public void map(ImmutableBytesWritable key, Result value, Context context
         ) throws IOException, InterruptedException {
-            for (Cell cell: value.rawCells()) {
-                String line = Bytes.toString(CellUtil.cloneValue(cell));
-                String[] records = csvParser.parseLine(line);
-                if (isValidDate(records) && isFlightSuccessful(records)) {
-                    context.write(getOutputKey(records), getOutputValue(records) );
-                }
+            String line = new String(value.getValue(Bytes.toBytes("info"), Bytes.toBytes("data")));
+            String[] records = csvParser.parseLine(line);
+
+            if (isValidDate(records) && isFlightSuccessful(records)) {
+                context.write(getOutputKey(records), getOutputValue(records) );
             }
         }
+
 
         private static Text getOutputKey(String[] records) {
             return new Text(records[CARRIER_INDEX]);
@@ -149,4 +160,5 @@ public class Main {
             return new Text(stringBuilder.toString());
         }
     }
+
 }
